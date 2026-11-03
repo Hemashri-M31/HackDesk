@@ -1,0 +1,39 @@
+services:
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      APP_NAME: HackDesk
+      ENVIRONMENT: local
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-https://api.openai.com/v1}
+      LLM_MODEL: ${LLM_MODEL:-gpt-4o-mini}
+      LLM_FALLBACK_MODEL: ${LLM_FALLBACK_MODEL:-gpt-4.1-mini}
+      LLM_TIMEOUT_SECONDS: ${LLM_TIMEOUT_SECONDS:-30}
+      LLM_RETRIES: ${LLM_RETRIES:-2}
+      LLM_INPUT_COST_PER_MILLION: ${LLM_INPUT_COST_PER_MILLION:-0.15}
+      LLM_OUTPUT_COST_PER_MILLION: ${LLM_OUTPUT_COST_PER_MILLION:-0.60}
+      LLM_FALLBACK_INPUT_COST_PER_MILLION: ${LLM_FALLBACK_INPUT_COST_PER_MILLION:-0.40}
+      LLM_FALLBACK_OUTPUT_COST_PER_MILLION: ${LLM_FALLBACK_OUTPUT_COST_PER_MILLION:-1.60}
+      DATABASE_URL: postgresql+psycopg://hackdesk:hackdesk@db:5432/hackdesk
+    depends_on:
+      db:
+        condition: service_healthy
+  db:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: hackdesk
+      POSTGRES_USER: hackdesk
+      POSTGRES_PASSWORD: hackdesk
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hackdesk -d hackdesk"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+volumes:
+  postgres_data:
