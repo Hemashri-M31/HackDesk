@@ -8,15 +8,19 @@ Frontend trainers, hackathon organisers, and students building applications with
 
 ## Signature feature
 
-The planned Trending Questions Board will surface the ten most common questions and their answers. The current API foundation includes structured LLM answers, streaming, provider fallback, and usage-cost tracking.
+The planned Trending Questions Board will surface the ten most common questions and their answers. The API includes:
+- Grounded retrieval with `[document, page]` citations via `POST /ask`
+- Structured LLM answers and streaming deltas via `POST /chat`
+- Multi-tier provider fallback, automated retries, and usage/cost logging via `GET /usage`
+- Vector storage with pgvector and SQLite fallback support
 
 ## Hardest problem
 
-Keeping answers responsive and affordable when many students ask similar questions. The planned solution is exact and semantic caching, followed by load testing at hackathon scale; neither caching nor the 10,000-user load test is implemented yet.
+Keeping answers responsive and affordable when 2,000 students ask similar questions concurrently. Planned for Week 4 is exact and semantic Redis caching and load testing at 10,000 simulated users targeting a p95 latency under 1 second and 60%+ cache hit rate.
 
 ## Dataset
 
-The dataset includes 60 App Router documentation pages from the [Next.js repository](https://github.com/vercel/next.js), with a pinned source revision, manifest, and three-page sample. See [DATASET.md](DATASET.md) for provenance and license details.
+The dataset includes **520 Next.js documentation and guide pages** from the [Next.js repository](https://github.com/vercel/next.js) (App Router, Pages Router, Architecture, and Examples), yielding **3,365 logical pages** and **6,781 indexed chunks**. See [DATASET.md](DATASET.md) for provenance, manifest, and MIT license details.
 
 ## Run locally
 
@@ -31,22 +35,57 @@ Copy-Item .env.example .env
 uvicorn app.main:app --reload
 ```
 
-The API starts without a key; `/health` and `/usage` work, while `/chat` returns `503` until `LLM_API_KEY` is configured. The default usage store is the local SQLite file `usage.db`.
+The API starts without a key; `/health` and `/usage` work, while `/chat` and `/ask` return `503` until `LLM_API_KEY` is configured. The default usage and vector store is the local SQLite file `usage.db`.
 
-## API
+To index documents into the database:
+
+```powershell
+python -m app.indexer
+```
+
+## API Endpoints
 
 - `GET /health` — liveness check; does not call the provider or database.
+- `POST /ask` — answers student questions using RAG with inline citations in the format `[document, page]` and a structured list of citations and retrieved chunks.
 - `POST /chat` — generate a JSON response with `answer`, `model`, and token usage.
 - `POST /chat` with `"stream": true` — stream JSON deltas as Server-Sent Events; the final `done` event includes model and token counts.
 - `GET /usage` — request/token totals, estimated cost, and the 100 latest requests.
 
-Example request:
+Example `POST /ask` request:
 
 ```json
-{"question":"How do I create a dynamic route in the Next.js App Router?"}
+{
+  "question": "What is the difference between a server component and a client component in the code?",
+  "top_k": 4
+}
 ```
 
-Configure `LLM_BASE_URL`, `LLM_MODEL`, and `LLM_FALLBACK_MODEL` for an OpenAI-compatible chat-completions provider. Retries and timeout are controlled with `LLM_RETRIES` and `LLM_TIMEOUT_SECONDS`. Cost estimates use the per-million-token rates in `.env`; keep them aligned with the provider's current pricing.
+Example `POST /ask` response:
+
+```json
+{
+  "question": "What is the difference between a server component and a client component in the code?",
+  "answer": "In Next.js App Router, components are Server Components by default [05-server-and-client-components.mdx, page 1]. Server Components execute on the server and add zero bytes to the client JavaScript bundle. Client Components require the 'use client' directive at the top of the file to use browser APIs and React state hooks [05-server-and-client-components.mdx, page 2].",
+  "citations": [
+    {
+      "document": "sample/05-server-and-client-components.mdx",
+      "page": 1,
+      "heading": "Server Components"
+    },
+    {
+      "document": "sample/05-server-and-client-components.mdx",
+      "page": 2,
+      "heading": "Client Components"
+    }
+  ],
+  "model": "gpt-4o-mini",
+  "usage": {
+    "prompt_tokens": 340,
+    "completion_tokens": 82,
+    "total_tokens": 422
+  }
+}
+```
 
 ## Docker Compose
 
@@ -56,8 +95,8 @@ Copy-Item .env.example .env
 docker compose up --build
 ```
 
-Compose starts the API and a persistent Postgres instance using the pgvector image. Usage events are stored in Postgres. The vector extension is not used until the retrieval work in Week 3. Open `http://localhost:8000/docs` for interactive API documentation.
+Compose starts the API and a persistent Postgres instance using the `pgvector/pgvector:pg16` image.
 
-## Deployment
+## Baseline Evaluation
 
-No public deployment is configured yet.
+See [docs/EVAL_v0.md](docs/EVAL_v0.md) for the baseline evaluation of all 10 benchmark questions, rubric scores, and error analysis.

@@ -21,6 +21,13 @@ class Settings(BaseSettings):
     llm_fallback_output_cost_per_million: float = Field(default=1.60, ge=0)
     database_url: str = "sqlite:///./usage.db"
 
+    # Week 3 RAG & Vector store settings
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dim: int = 1536
+    rag_top_k: int = 4
+    rag_similarity_threshold: float = 0.0
+    docs_data_path: str = "data"
+
 
 @lru_cache
 def get_settings() -> Settings:

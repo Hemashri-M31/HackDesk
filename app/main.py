@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import re
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -26,10 +27,36 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import StaticPool
 
 from app.config import Settings, get_settings
-from app.schemas import ChatRequest, ChatResponse, TokenUsage, UsageEvent, UsageResponse, UsageSummary
+from app.schemas import (
+    AskRequest,
+    AskResponse,
+    ChatRequest,
+    ChatResponse,
+    Citation,
+    RetrievedChunk,
+    TokenUsage,
+    UsageEvent,
+    UsageResponse,
+    UsageSummary,
+)
+from app.vector_store import VectorStore, generate_embedding
 
 logger = logging.getLogger(__name__)
+
 SYSTEM_PROMPT = 'Answer the user. Return only a JSON object with one string property named "answer".'
+
+RAG_SYSTEM_PROMPT = (
+    "You are HackDesk, an expert assistant for Next.js developers at a hackathon. "
+    "Answer the student's question accurately using ONLY the provided documentation context chunks. "
+    "Every factual statement must include an inline citation in the exact format [document, page] "
+    "(for example: [05-server-and-client-components.mdx, page 1]). "
+    "If the provided context does not contain enough information to answer the question, state honestly and clearly: "
+    "'Based on the provided Next.js documentation, this information is not available.' "
+    "Return only a JSON object with: "
+    '1) "answer": string containing your complete answer with [document, page] citations, '
+    '2) "citations": list of objects each having "document" (string), "page" (integer), and optional "heading" (string).'
+)
+
 metadata = MetaData()
 usage_events = Table(
     "usage_events",
@@ -56,16 +83,20 @@ def create_usage_engine(database_url: str) -> Engine:
 @asynccontextmanager
 async def lifespan(application: FastAPI):
     settings_provider = application.dependency_overrides.get(get_settings, get_settings)
-    engine = create_usage_engine(settings_provider().database_url)
+    settings = settings_provider()
+    engine = create_usage_engine(settings.database_url)
     metadata.create_all(engine)
+    vector_store = VectorStore(engine, settings)
+    vector_store.init_db()
     application.state.usage_engine = engine
+    application.state.vector_store = vector_store
     try:
         yield
     finally:
         engine.dispose()
 
 
-app = FastAPI(title="HackDesk API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="HackDesk API", version="0.3.0", lifespan=lifespan)
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
@@ -107,6 +138,7 @@ async def _post_completion(
     question: str,
     model: str,
     *,
+    system_prompt: str = SYSTEM_PROMPT,
     stream: bool = False,
 ) -> httpx.Response:
     headers = {"Authorization": f"Bearer {settings.llm_api_key}"}
@@ -115,7 +147,7 @@ async def _post_completion(
         "messages": [
             {
                 "role": "system",
-                "content": SYSTEM_PROMPT,
+                "content": system_prompt,
             },
             {"role": "user", "content": question},
         ],
@@ -149,6 +181,25 @@ def _response_answer(response: httpx.Response) -> tuple[str, int, int]:
     return answer, prompt_tokens, completion_tokens
 
 
+def _response_rag(response: httpx.Response) -> tuple[str, list[dict[str, Any]], int, int]:
+    try:
+        result = response.json()
+        content = result["choices"][0]["message"]["content"]
+        structured = json.loads(content)
+        answer = structured.get("answer", "")
+        if not isinstance(answer, str) or not answer.strip():
+            raise ValueError("answer must be a non-empty string")
+        citations_raw = structured.get("citations", [])
+        if not isinstance(citations_raw, list):
+            citations_raw = []
+        usage = result.get("usage") or {}
+        prompt_tokens = int(usage.get("prompt_tokens", max(1, len(content) // 4)))
+        completion_tokens = int(usage.get("completion_tokens", max(1, len(answer) // 4)))
+    except (KeyError, IndexError, TypeError, ValueError) as error:
+        raise HTTPException(status_code=502, detail="LLM provider returned an invalid response") from error
+    return answer, citations_raw, prompt_tokens, completion_tokens
+
+
 async def _generate_answer(settings: Settings, question: str) -> tuple[str, str, int, int]:
     if not settings.llm_api_key:
         raise HTTPException(status_code=503, detail="LLM_API_KEY is not configured")
@@ -179,6 +230,58 @@ async def _generate_answer(settings: Settings, question: str) -> tuple[str, str,
             if attempt < settings.llm_retries:
                 await asyncio.sleep(min(0.25 * (2**attempt), 2))
     logger.error("LLM request failed after retries and fallback: %s", type(last_error).__name__)
+    raise HTTPException(status_code=502, detail="LLM provider is unavailable") from last_error
+
+
+async def _generate_rag_answer(
+    settings: Settings,
+    question: str,
+    context_chunks: list[RetrievedChunk],
+) -> tuple[str, list[dict[str, Any]], str, int, int]:
+    if not settings.llm_api_key:
+        raise HTTPException(status_code=503, detail="LLM_API_KEY is not configured")
+
+    context_lines = []
+    for i, c in enumerate(context_chunks, 1):
+        context_lines.append(
+            f"--- Chunk {i} | Document: {c.document} | Page: {c.page} | Section: {c.heading or 'General'} ---\n{c.content}"
+        )
+    combined_context = "\n\n".join(context_lines)
+    full_prompt = f"Documentation Context:\n{combined_context}\n\nStudent Question:\n{question}"
+
+    models = [settings.llm_model]
+    if settings.llm_fallback_model and settings.llm_fallback_model != settings.llm_model:
+        models.append(settings.llm_fallback_model)
+    last_error: Exception | None = None
+
+    for model in models:
+        for attempt in range(settings.llm_retries + 1):
+            try:
+                response = await _post_completion(
+                    settings,
+                    full_prompt,
+                    model,
+                    system_prompt=RAG_SYSTEM_PROMPT,
+                )
+                answer, citations_raw, prompt_tokens, completion_tokens = _response_rag(response)
+                return answer, citations_raw, model, prompt_tokens, completion_tokens
+            except httpx.TimeoutException as error:
+                last_error = error
+            except httpx.HTTPStatusError as error:
+                if error.response.status_code == 404:
+                    last_error = error
+                    break
+                if error.response.status_code not in (408, 429) and error.response.status_code < 500:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="LLM provider rejected the request",
+                    ) from error
+                last_error = error
+            except httpx.RequestError as error:
+                last_error = error
+            if attempt < settings.llm_retries:
+                await asyncio.sleep(min(0.25 * (2**attempt), 2))
+    logger.error("RAG request failed after retries and fallback: %s", type(last_error).__name__)
     raise HTTPException(status_code=502, detail="LLM provider is unavailable") from last_error
 
 
@@ -327,6 +430,70 @@ async def chat(payload: ChatRequest, request: Request, settings: SettingsDep):
             completion_tokens=completion_tokens,
             total_tokens=prompt_tokens + completion_tokens,
         ),
+    )
+
+
+@app.post("/ask", response_model=AskResponse)
+async def ask(payload: AskRequest, request: Request, settings: SettingsDep):
+    """Retrieve grounded documentation chunks and answer with [document, page] citations."""
+    engine: Engine = request.app.state.usage_engine
+    vector_store: VectorStore = request.app.state.vector_store
+
+    # 1. Compute question vector
+    query_vector = await generate_embedding(payload.question, settings)
+
+    # 2. Retrieve top-k chunks
+    retrieved = vector_store.search(
+        query_vector,
+        top_k=payload.top_k,
+        query_text=payload.question,
+    )
+
+    # 3. Generate grounded answer
+    answer, raw_citations, model, prompt_tokens, completion_tokens = await _generate_rag_answer(
+        settings, payload.question, retrieved
+    )
+
+    # 4. Record usage
+    _record_usage(engine, settings, model, prompt_tokens, completion_tokens)
+
+    # 5. Extract structured citations
+    citations: list[Citation] = []
+    seen_cites = set()
+
+    for item in raw_citations:
+        doc = item.get("document", "")
+        page = int(item.get("page", 1))
+        heading = item.get("heading")
+        key = (doc, page)
+        if key not in seen_cites and doc:
+            seen_cites.add(key)
+            citations.append(Citation(document=doc, page=page, heading=heading))
+
+    # Also extract citations formatted like [document, page] from answer string if missing
+    inline_matches = re.findall(r"\[([\w\-./]+),\s*(?:page\s*)?(\d+)\]", answer)
+    for doc, page_str in inline_matches:
+        key = (doc, int(page_str))
+        if key not in seen_cites:
+            seen_cites.add(key)
+            citations.append(Citation(document=doc, page=int(page_str)))
+
+    # If no inline citations were produced but chunks were retrieved and answer is positive
+    if not citations and retrieved and "not available" not in answer.lower():
+        for chunk in retrieved[:2]:
+            citations.append(Citation(document=chunk.document, page=chunk.page, heading=chunk.heading))
+
+    return AskResponse(
+        question=payload.question,
+        answer=answer,
+        citations=citations,
+        model=model,
+        usage=TokenUsage(
+            prompt_tokens=prompt_tokens,
+            completion_tokens=completion_tokens,
+            total_tokens=prompt_tokens + completion_tokens,
+        ),
+        context=retrieved,
     )
 
 

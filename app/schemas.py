@@ -38,3 +38,32 @@ class UsageEvent(BaseModel):
 class UsageResponse(BaseModel):
     summary: UsageSummary
     recent: list[UsageEvent]
+
+
+class Citation(BaseModel):
+    document: str
+    page: int
+    heading: str | None = None
+    snippet: str | None = None
+
+
+class RetrievedChunk(BaseModel):
+    document: str
+    page: int
+    heading: str | None = None
+    content: str
+    score: float
+
+
+class AskRequest(BaseModel):
+    question: str = Field(min_length=1, max_length=12_000)
+    top_k: int = Field(default=4, ge=1, le=20)
+
+
+class AskResponse(BaseModel):
+    question: str
+    answer: str
+    citations: list[Citation]
+    model: str
+    usage: TokenUsage
+    context: list[RetrievedChunk] = Field(default_factory=list)
