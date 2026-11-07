@@ -107,3 +107,4 @@ def test_ask_handles_unanswerable_question(client, monkeypatch):
     assert response.status_code == 200
     data = response.json()
     assert "not available" in data["answer"].lower()
+

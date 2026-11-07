@@ -155,3 +155,4 @@ Each question is evaluated against the grounded corpus of **520 Next.js document
    - Implement **Redis exact & semantic caching** for incoming queries to handle repeat questions in milliseconds.
    - Deploy Trending Questions Board.
    - Run 10,000 simulated user load tests targeting < 1s p95 latency and > 60% cache hit rate.
+

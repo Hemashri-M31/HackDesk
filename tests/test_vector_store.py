@@ -65,3 +65,4 @@ def test_vector_store_indexing_and_search():
     assert results[0].document == "05-server-and-client-components.mdx"
     assert results[0].page == 2
     assert "use client" in results[0].content
+

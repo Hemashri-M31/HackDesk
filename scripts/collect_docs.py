@@ -98,3 +98,4 @@ async def collect_documents(target_count: int = 520) -> None:
 
 if __name__ == "__main__":
     asyncio.run(collect_documents())
+

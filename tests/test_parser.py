@@ -76,3 +76,4 @@ def test_parser_strips_mdx_tags():
     assert "{/* comment */}" not in cleaned
     assert "Hello App Router" in cleaned
     assert "Normal text" in cleaned
+

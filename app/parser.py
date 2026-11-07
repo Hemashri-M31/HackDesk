@@ -227,3 +227,4 @@ class MarkdownDocumentParser:
             chunk_idx += len(chunks)
 
         return all_chunks
+
