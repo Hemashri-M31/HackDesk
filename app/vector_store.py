@@ -161,7 +161,8 @@ class VectorStore:
                 # Add native pgvector vector column if not already present
                 conn.execute(
                     text(
-                        f"ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS embedding vector({self.settings.embedding_dim});"
+                        "ALTER TABLE document_chunks ADD COLUMN IF NOT EXISTS "
+                        f"embedding vector({self.settings.embedding_dim});"
                     )
                 )
 
@@ -175,9 +176,7 @@ class VectorStore:
             for chunk in chunks:
                 if chunk.document not in docs_map:
                     existing = conn.execute(
-                        select(documents_table.c.id).where(
-                            documents_table.c.doc_path == chunk.document
-                        )
+                        select(documents_table.c.id).where(documents_table.c.doc_path == chunk.document)
                     ).scalar_one_or_none()
                     if existing is not None:
                         docs_map[chunk.document] = existing
@@ -215,7 +214,8 @@ class VectorStore:
                     for r, emb in zip(rows_to_insert, embeddings, strict=True):
                         conn.execute(
                             text(
-                                "UPDATE document_chunks SET embedding = :emb WHERE doc_path = :doc AND chunk_index = :idx"
+                                "UPDATE document_chunks SET embedding = :emb "
+                                "WHERE doc_path = :doc AND chunk_index = :idx"
                             ),
                             {
                                 "emb": str(emb),

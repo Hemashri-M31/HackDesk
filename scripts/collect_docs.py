@@ -1,9 +1,10 @@
 import asyncio
 import csv
 import hashlib
-from pathlib import Path
-import urllib.request
 import json
+import urllib.request
+from pathlib import Path
+
 import httpx
 
 DATA_DIR = Path("data/docs")
@@ -12,7 +13,9 @@ REPO_TREE_URL = "https://api.github.com/repos/vercel/next.js/git/trees/canary?re
 RAW_BASE_URL = "https://raw.githubusercontent.com/vercel/next.js/canary/"
 
 
-async def download_file(client: httpx.AsyncClient, file_path: str, semaphore: asyncio.Semaphore) -> dict | None:
+async def download_file(
+    client: httpx.AsyncClient, file_path: str, semaphore: asyncio.Semaphore
+) -> dict | None:
     async with semaphore:
         url = RAW_BASE_URL + file_path
         try:
@@ -64,9 +67,7 @@ async def collect_documents(target_count: int = 520) -> None:
     packages_files = [
         item["path"]
         for item in tree
-        if item["type"] == "blob"
-        and item["path"].startswith("packages/")
-        and item["path"].endswith(".md")
+        if item["type"] == "blob" and item["path"].startswith("packages/") and item["path"].endswith(".md")
     ]
 
     selected_files = docs_files + examples_files + packages_files
@@ -98,4 +99,3 @@ async def collect_documents(target_count: int = 520) -> None:
 
 if __name__ == "__main__":
     asyncio.run(collect_documents())
-

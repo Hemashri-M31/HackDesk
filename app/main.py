@@ -47,14 +47,17 @@ SYSTEM_PROMPT = 'Answer the user. Return only a JSON object with one string prop
 
 RAG_SYSTEM_PROMPT = (
     "You are HackDesk, an expert assistant for Next.js developers at a hackathon. "
-    "Answer the student's question accurately using ONLY the provided documentation context chunks. "
-    "Every factual statement must include an inline citation in the exact format [document, page] "
-    "(for example: [05-server-and-client-components.mdx, page 1]). "
-    "If the provided context does not contain enough information to answer the question, state honestly and clearly: "
-    "'Based on the provided Next.js documentation, this information is not available.' "
-    "Return only a JSON object with: "
-    '1) "answer": string containing your complete answer with [document, page] citations, '
-    '2) "citations": list of objects each having "document" (string), "page" (integer), and optional "heading" (string).'
+    "Answer the student's question accurately using ONLY the provided documentation "
+    "context chunks. Every factual statement must include an inline citation in the "
+    "exact format [document, page] (for example: "
+    "[05-server-and-client-components.mdx, page 1]). If the provided context does "
+    "not contain enough information to answer the question, state honestly and "
+    "clearly: 'Based on the provided Next.js documentation, this information is not "
+    "available.' Return only a JSON object with: "
+    '1) "answer": string containing your complete answer with [document, page] '
+    'citations, '
+    '2) "citations": list of objects each having "document" (string), "page" '
+    '(integer), and optional "heading" (string).'
 )
 
 metadata = MetaData()
@@ -229,7 +232,10 @@ async def _generate_answer(settings: Settings, question: str) -> tuple[str, str,
                 last_error = error
             if attempt < settings.llm_retries:
                 await asyncio.sleep(min(0.25 * (2**attempt), 2))
-    logger.error("LLM request failed after retries and fallback: %s", type(last_error).__name__)
+    logger.error(
+        "LLM request failed after retries and fallback: %s",
+        type(last_error).__name__,
+    )
     raise HTTPException(status_code=502, detail="LLM provider is unavailable") from last_error
 
 
@@ -244,7 +250,8 @@ async def _generate_rag_answer(
     context_lines = []
     for i, c in enumerate(context_chunks, 1):
         context_lines.append(
-            f"--- Chunk {i} | Document: {c.document} | Page: {c.page} | Section: {c.heading or 'General'} ---\n{c.content}"
+            f"--- Chunk {i} | Document: {c.document} | Page: {c.page} | "
+            f"Section: {c.heading or 'General'} ---\n{c.content}"
         )
     combined_context = "\n\n".join(context_lines)
     full_prompt = f"Documentation Context:\n{combined_context}\n\nStudent Question:\n{question}"
@@ -330,10 +337,13 @@ async def _stream_model(
                     ) from error
                 usage = chunk.get("usage")
                 if usage:
-                    yield "", {
-                        "prompt_tokens": int(usage.get("prompt_tokens", 0)),
-                        "completion_tokens": int(usage.get("completion_tokens", 0)),
-                    }
+                    yield (
+                        "",
+                        {
+                            "prompt_tokens": int(usage.get("prompt_tokens", 0)),
+                            "completion_tokens": int(usage.get("completion_tokens", 0)),
+                        },
+                    )
                 for choice in chunk.get("choices", []):
                     delta = choice.get("delta", {}).get("content")
                     if delta:
@@ -388,9 +398,7 @@ async def _stream_response(
                 retryable = status_code is None or status_code in (408, 429) or status_code >= 500
                 if not retryable or chunks:
                     detail = (
-                        "LLM provider rejected the request"
-                        if not retryable
-                        else "LLM stream was interrupted"
+                        "LLM provider rejected the request" if not retryable else "LLM stream was interrupted"
                     )
                     yield f"event: error\ndata: {json.dumps({'detail': detail})}\n\n"
                     return

@@ -1,6 +1,5 @@
 from app.parser import MarkdownDocumentParser, ParsedPage
 
-
 SAMPLE_MDX = """---
 title: Server and Client Components
 description: Understanding React Server Components in Next.js
@@ -54,7 +53,10 @@ def test_chunking_preserves_page_numbers_and_citations():
         document="08-caching.mdx",
         page=3,
         headings=["Caching", "Data Cache"],
-        content="Next.js provides built-in data caching using fetch extensions.\n\nRevalidation can be time-based or on-demand using revalidateTag.",
+        content=(
+            "Next.js provides built-in data caching using fetch extensions.\n\n"
+            "Revalidation can be time-based or on-demand using revalidateTag."
+        ),
         metadata={"title": "Caching in Next.js"},
     )
     chunks = parser.chunk_page(page, start_index=0)
@@ -76,4 +78,3 @@ def test_parser_strips_mdx_tags():
     assert "{/* comment */}" not in cleaned
     assert "Hello App Router" in cleaned
     assert "Normal text" in cleaned
-

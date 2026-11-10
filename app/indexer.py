@@ -1,6 +1,7 @@
 import asyncio
 import logging
 from pathlib import Path
+
 from sqlalchemy.engine import Engine
 
 from app.config import Settings, get_settings
@@ -73,4 +74,3 @@ def run_indexer():
 
 if __name__ == "__main__":
     run_indexer()
-
