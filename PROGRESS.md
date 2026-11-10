@@ -8,7 +8,7 @@ Commit after every class. Tag every Friday: `git tag week-N && git push origin w
 - [x] `/health` endpoint implemented
 - [x] `docs/QUESTIONS.md`: 10 real questions
 - [x] 50+ pages collected (60), `DATASET.md` filled, 3-page sample in `data/sample/`
-- [x] Tag `week-1` pushed (external git action)
+- [ ] Tag `week-1` pushed (external git action)
 
 ## Week 2 (tag week-2 by Fri 30 Oct)
 - [x] `POST /chat` calls a configurable LLM and returns structured JSON
@@ -17,14 +17,14 @@ Commit after every class. Tag every Friday: `git tag week-N && git push origin w
 - [x] Docker Compose API + Postgres/pgvector runtime verified (Docker compose configured with pgvector)
 - [x] Local CI checks pass (`pytest` and Ruff; remote GitHub Actions not checked)
 - [ ] Live deployment link added to README (deployment not configured)
-- [x] Tag `week-2` pushed (external git action)
+- [ ] Tag `week-2` pushed (external git action)
 
 ## Week 3 (tag week-3 by Fri 6 Nov)
 - [x] Parser keeps page numbers and headings (`app/parser.py`)
 - [x] 500+ pages chunked, embedded and stored in pgvector (`scripts/collect_docs.py`, `app/indexer.py`, 525 documents, 3,365 pages, 6,781 chunks)
 - [x] POST /ask answers with [document, page] citations (`app/main.py`)
 - [x] docs/EVAL_v0.md with my 10 questions scored (`docs/EVAL_v0.md`)
-- [x] Tag week-3 pushed
+- [ ] Tag week-3 pushed
 
 ## Daily log
 | Date | What I did today | Commit |
